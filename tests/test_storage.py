@@ -2,6 +2,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import time
 
 from class_registration import (
@@ -120,7 +121,9 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(loaded.max_credits, 18)
 
     def test_unknown_schema_version_rejected(self):
-        with sqlite3.connect(self.path) as conn:
+        # closing() matters: sqlite3's own context manager only commits, and
+        # Windows can't delete the temp file while a connection is open.
+        with closing(sqlite3.connect(self.path)) as conn:
             conn.execute("PRAGMA user_version = 99")
         with self.assertRaisesRegex(ValueError, "schema version 99"):
             load_registrar(self.path)

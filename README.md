@@ -84,13 +84,21 @@ When input is piped in rather than typed, passwords are read from standard input
 ```python
 from datetime import time
 from class_registration import (
-    ENROLLED, Instructor, MeetingTime, Registrar, Student,
-    load_registrar, save_registrar,
+    ENROLLED,
+    Instructor,
+    MeetingTime,
+    Registrar,
+    Student,
+    load_registrar,
+    save_registrar,
 )
 
 registrar = Registrar(max_credits=18)
 cs101 = registrar.create_course(
-    "CS101", "Intro to Programming", credits=4, capacity=2,
+    "CS101",
+    "Intro to Programming",
+    credits=4,
+    capacity=2,
     meeting_times=[MeetingTime("Mon", time(9), time(10, 30))],
 )
 registrar.assign_instructor(cs101, Instructor("jdoe", "s3cret", "Jane", "Doe", "E1"))
