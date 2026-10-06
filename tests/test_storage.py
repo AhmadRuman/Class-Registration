@@ -12,7 +12,7 @@ from class_registration import (
     Student,
     User,
 )
-from storage import load_registrar, save_registrar
+from class_registration.storage import load_registrar, save_registrar
 
 # Keep password hashing cheap so the suite runs fast.
 User.hash_iterations = 1_000
@@ -103,9 +103,7 @@ class StorageTests(unittest.TestCase):
         save_registrar(self.registrar, self.path)
         self.registrar.drop_student(self.students[0], self.cs101)
         loaded = self.round_trip()
-        self.assertEqual(
-            [s.student_id for s in loaded.courses["CS101"].students], ["S2", "S3"]
-        )
+        self.assertEqual([s.student_id for s in loaded.courses["CS101"].students], ["S2", "S3"])
 
     def test_failed_save_keeps_previous_contents(self):
         save_registrar(self.registrar, self.path)
@@ -114,9 +112,7 @@ class StorageTests(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             save_registrar(self.registrar, self.path)
         loaded = load_registrar(self.path)
-        self.assertEqual(
-            [s.student_id for s in loaded.courses["CS101"].students], ["S1", "S2"]
-        )
+        self.assertEqual([s.student_id for s in loaded.courses["CS101"].students], ["S1", "S2"])
 
     def test_missing_file_loads_empty_registrar(self):
         loaded = load_registrar(os.path.join(self.tmpdir.name, "new.db"))

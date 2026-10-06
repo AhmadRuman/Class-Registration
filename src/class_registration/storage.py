@@ -4,7 +4,8 @@ import sqlite3
 from contextlib import closing
 from datetime import time
 
-from class_registration import Course, Instructor, MeetingTime, Registrar, Student
+from .models import Course, Instructor, MeetingTime, Student
+from .registrar import Registrar
 
 SCHEMA_VERSION = 1
 
@@ -206,9 +207,7 @@ def load_registrar(path):
                 MeetingTime(day, time.fromisoformat(start), time.fromisoformat(end))
             )
 
-        for code, name, credits, capacity, instructor_id in conn.execute(
-            "SELECT * FROM courses"
-        ):
+        for code, name, credits, capacity, instructor_id in conn.execute("SELECT * FROM courses"):
             course = Course(
                 code,
                 name,

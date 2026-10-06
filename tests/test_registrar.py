@@ -6,8 +6,8 @@ from class_registration import (
     WAITLISTED,
     Instructor,
     MeetingTime,
-    RegistrationError,
     Registrar,
+    RegistrationError,
     Student,
     User,
 )
