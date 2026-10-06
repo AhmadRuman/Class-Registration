@@ -14,21 +14,34 @@ class RegistrationError(Exception):
 
 
 class User:
-    _HASH_ITERATIONS = 200_000
+    # PBKDF2 work factor for newly set passwords. Each user keeps the count
+    # their hash was made with, so raising this never invalidates old hashes.
+    hash_iterations = 200_000
 
     def __init__(self, username, password, first_name, last_name):
+        """Pass password=None to create a user whose hash is restored later."""
         self.username = username
         self.first_name = first_name
         self.last_name = last_name
-        self._salt = secrets.token_bytes(16)
-        self._password_hash = self._hash_password(password)
+        self._salt = None
+        self._password_hash = None
+        self._iterations = None
+        if password is not None:
+            self.set_password(password)
 
     def _hash_password(self, password):
         return hashlib.pbkdf2_hmac(
-            "sha256", password.encode("utf-8"), self._salt, self._HASH_ITERATIONS
+            "sha256", password.encode("utf-8"), self._salt, self._iterations
         )
 
+    def set_password(self, password):
+        self._salt = secrets.token_bytes(16)
+        self._iterations = self.hash_iterations
+        self._password_hash = self._hash_password(password)
+
     def check_password(self, password):
+        if self._password_hash is None:
+            return False
         return hmac.compare_digest(self._password_hash, self._hash_password(password))
 
     def get_full_name(self):
@@ -123,13 +136,27 @@ class Registrar:
                 f"Course {course.course_code} is not managed by this registrar"
             )
 
-    def assign_instructor(self, course, instructor):
-        self._check_course(course)
+    def _check_new_student(self, student):
+        existing = self.students.get(student.student_id)
+        if existing is not None and existing is not student:
+            raise RegistrationError(
+                f"Student ID {student.student_id} belongs to another student"
+            )
+
+    def add_student(self, student):
+        self._check_new_student(student)
+        self.students[student.student_id] = student
+
+    def add_instructor(self, instructor):
         existing = self.instructors.setdefault(instructor.employee_id, instructor)
         if existing is not instructor:
             raise RegistrationError(
                 f"Employee ID {instructor.employee_id} belongs to another instructor"
             )
+
+    def assign_instructor(self, course, instructor):
+        self._check_course(course)
+        self.add_instructor(instructor)
         course.instructor = instructor
 
     def get_student_courses(self, student):
@@ -163,11 +190,7 @@ class Registrar:
         Returns ENROLLED or WAITLISTED.
         """
         self._check_course(course)
-        existing = self.students.get(student.student_id)
-        if existing is not None and existing is not student:
-            raise RegistrationError(
-                f"Student ID {student.student_id} belongs to another student"
-            )
+        self._check_new_student(student)
         if student in course.students:
             raise RegistrationError(
                 f"Student {student.student_id} is already registered in {course.course_code}"
@@ -177,7 +200,7 @@ class Registrar:
                 f"Student {student.student_id} is already on the waitlist for {course.course_code}"
             )
         self._check_eligibility(student, course)
-        self.students[student.student_id] = student
+        self.add_student(student)
         if course.is_full():
             course.waitlist.append(student)
             return WAITLISTED

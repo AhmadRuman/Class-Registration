@@ -9,7 +9,11 @@ from class_registration import (
     RegistrationError,
     Registrar,
     Student,
+    User,
 )
+
+# Keep password hashing cheap so the suite runs fast.
+User.hash_iterations = 1_000
 
 
 class RegistrarTests(unittest.TestCase):
@@ -79,6 +83,23 @@ class RegistrarTests(unittest.TestCase):
 
 def make_student(n):
     return Student(f"user{n}", "pw", "First", f"Last{n}", f"S{n}")
+
+
+class AddPeopleTests(unittest.TestCase):
+    def test_add_student_and_instructor_without_courses(self):
+        registrar = Registrar()
+        student = make_student(1)
+        instructor = Instructor("jdoe", "pw", "Jane", "Doe", "E1")
+        registrar.add_student(student)
+        registrar.add_instructor(instructor)
+        self.assertIs(registrar.students["S1"], student)
+        self.assertIs(registrar.instructors["E1"], instructor)
+
+    def test_add_student_with_taken_id_rejected(self):
+        registrar = Registrar()
+        registrar.add_student(make_student(1))
+        with self.assertRaises(RegistrationError):
+            registrar.add_student(make_student(1))
 
 
 class CapacityAndWaitlistTests(unittest.TestCase):
@@ -224,6 +245,19 @@ class PasswordTests(unittest.TestCase):
         self.assertFalse(hasattr(student, "password"))
         self.assertTrue(student.check_password("pw1"))
         self.assertFalse(student.check_password("wrong"))
+
+    def test_user_without_password_never_matches(self):
+        student = Student("alice", None, "Alice", "Smith", "S1")
+        self.assertFalse(student.check_password(""))
+
+    def test_old_hashes_survive_iteration_change(self):
+        student = Student("alice", "pw1", "Alice", "Smith", "S1")
+        original = User.hash_iterations
+        User.hash_iterations = original * 2
+        try:
+            self.assertTrue(student.check_password("pw1"))
+        finally:
+            User.hash_iterations = original
 
     def test_same_password_gets_different_hashes(self):
         a = Student("a", "same", "A", "A", "S1")
