@@ -11,6 +11,7 @@ class Registrar:
     def __init__(self, max_credits=18):
         self.max_credits = max_credits
         self.courses = {}
+        self.admins = {}
         self.instructors = {}
         self.students = {}
 
@@ -25,21 +26,48 @@ class Registrar:
         if self.courses.get(course.course_code) is not course:
             raise RegistrationError(f"Course {course.course_code} is not managed by this registrar")
 
+    def find_user(self, username):
+        """Return the admin, instructor or student with this username, or None."""
+        for people in (self.admins, self.instructors, self.students):
+            for user in people.values():
+                if user.username == username:
+                    return user
+        return None
+
+    def _check_username(self, user):
+        # Usernames are the login name, so they must be unique across all roles.
+        existing = self.find_user(user.username)
+        if existing is not None and existing is not user:
+            raise RegistrationError(f"Username {user.username!r} is already taken")
+
     def _check_new_student(self, student):
         existing = self.students.get(student.student_id)
         if existing is not None and existing is not student:
             raise RegistrationError(f"Student ID {student.student_id} belongs to another student")
+        self._check_username(student)
 
     def add_student(self, student):
         self._check_new_student(student)
         self.students[student.student_id] = student
 
     def add_instructor(self, instructor):
-        existing = self.instructors.setdefault(instructor.employee_id, instructor)
-        if existing is not instructor:
+        existing = self.instructors.get(instructor.employee_id)
+        if existing is not None and existing is not instructor:
             raise RegistrationError(
                 f"Employee ID {instructor.employee_id} belongs to another instructor"
             )
+        self._check_username(instructor)
+        self.instructors[instructor.employee_id] = instructor
+
+    def add_admin(self, admin):
+        existing = self.admins.get(admin.admin_id)
+        if existing is not None and existing is not admin:
+            raise RegistrationError(f"Admin ID {admin.admin_id} belongs to another admin")
+        self._check_username(admin)
+        self.admins[admin.admin_id] = admin
+
+    def get_instructor_courses(self, instructor):
+        return [c for c in self.courses.values() if c.instructor is instructor]
 
     def assign_instructor(self, course, instructor):
         self._check_course(course)

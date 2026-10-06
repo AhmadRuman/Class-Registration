@@ -14,7 +14,10 @@ It ships as a library and a `class-reg` command-line tool, and stores its data i
   first student on the waitlist who is still eligible
 - **Registration rules**: completed prerequisites, a per-student credit limit and
   schedule conflict checks, each with a clear error message
-- **Secure passwords**: only salted PBKDF2-SHA256 hashes are stored, never plain text
+- **Logins and roles**: admins manage everything, instructors see the class lists of
+  the courses they teach, and students register for and drop their own courses
+- **Secure passwords**: only salted PBKDF2-SHA256 hashes are stored, never plain text.
+  Login sessions expire after 8 hours, and only a hash of each session token is stored
 - **Saved in SQLite**: each save happens all at once or not at all, with foreign keys
   and a versioned schema
 - **Command-line tool** for managing everything from the terminal
@@ -34,7 +37,18 @@ This installs the `class-reg` command. You can also run it with `python -m class
 Data is stored in `registration.db` in the current directory. Use `--db PATH` or the
 `CLASS_REG_DB` environment variable to choose a different file.
 
+### Getting started as an admin
+
+A new database has no accounts, so the only command it accepts is creating the first
+admin. After that, every command needs you to log in.
+
 ```console
+$ class-reg admin add A1 root Ada Admin            # prompts for a password
+Added admin Ada Admin (A1)
+
+$ class-reg login root
+Logged in as Ada Admin (admin)
+
 $ class-reg init --max-credits 18
 Database registration.db ready (max 18 credits per student)
 
@@ -47,37 +61,72 @@ Created CS201: Algorithms
 
 $ class-reg instructor add E1 jdoe Jane Doe        # prompts for a password
 $ class-reg instructor assign E1 CS101
-
 $ class-reg student add S1 alice Alice Smith       # prompts for a password
-$ class-reg register S1 CS201
+```
+
+### As a student
+
+```console
+$ class-reg login alice
+Logged in as Alice Smith (student)
+
+$ class-reg register CS201
 error: Student S1 is missing prerequisites for CS201: CS101
 
-$ class-reg student complete S1 CS101
-$ class-reg register S1 CS201
-Enrolled S1 in CS201
+$ class-reg register CS101
+Enrolled S1 in CS101
 
-$ class-reg course list
-CODE       NAME                           CREDITS     SEATS WAITLIST  INSTRUCTOR
-CS101      Intro to Programming                 4      0/30        0  Jane Doe
-CS201      Algorithms                           3       0/-        0  -
+$ class-reg student show                           # your own schedule
+S1: Alice Smith (alice)
+  Credits:   4/18
+  Completed: -
+  Enrolled:
+    CS101  Intro to Programming (Mon 09:00-10:30, Wed 09:00-10:30)
 ```
+
+### Who can do what
+
+| Command | Admin | Instructor | Student |
+|---|:-:|:-:|:-:|
+| `login USERNAME`, `logout`, `whoami`, `passwd` | ✓ | ✓ | ✓ |
+| `course list`, `course show CODE` | ✓ | ✓ | ✓ |
+| ...with the class list and waitlist names | ✓ | own courses | – |
+| `student show [ID]` | anyone | own students | self |
+| `register CODE`, `drop CODE` | with `--student ID` | – | self |
+| `student complete ID CODE...` | ✓ | own courses | – |
+| `course add`, `instructor add/assign`, `student add`, `admin add`, `init` | ✓ | – | – |
+
+### All commands
 
 | Command | What it does |
 |---|---|
-| `init [--max-credits N]` | Create the database or change the credit limit |
+| `admin add ID USERNAME FIRST LAST` | Add an admin (no login needed for the first one) |
+| `login USERNAME` / `logout` / `whoami` | Start, end or check your session |
+| `passwd` | Change your password; this also signs out your other sessions |
+| `init [--max-credits N]` | Change the credit limit |
 | `course add CODE NAME [--credits N] [--capacity N] [--prereq CODE]... [--meets 'Mon 09:00-10:30']...` | Create a course |
 | `course list` | List courses with seats, waitlist size and instructor |
-| `course show CODE` | Course details, class list and waitlist |
+| `course show CODE` | Course details, plus the class list if you may see it |
 | `instructor add ID USERNAME FIRST LAST` | Add an instructor |
 | `instructor assign ID CODE` | Assign an instructor to a course |
 | `student add ID USERNAME FIRST LAST` | Add a student |
 | `student complete ID CODE...` | Record courses a student has completed |
-| `student show ID` | A student's credits, schedule and waitlist positions |
-| `register STUDENT_ID CODE` | Enroll a student, or add them to the waitlist if the course is full |
-| `drop STUDENT_ID CODE` | Drop a student; the next eligible waitlisted student gets the seat |
+| `student show [ID]` | A student's credits, schedule and waitlist positions |
+| `register CODE [--student ID]` | Enroll, or join the waitlist if the course is full |
+| `drop CODE [--student ID]` | Drop a course; the next eligible waitlisted student gets the seat |
 
-When input is piped in rather than typed, passwords are read from standard input:
-`echo "$PASSWORD" | class-reg student add ...`.
+Usernames are unique across admins, instructors and students. When input is piped in
+rather than typed, passwords are read from standard input:
+`echo "$PASSWORD" | class-reg login alice`.
+
+Your login is remembered in `~/.class_reg_session` (or the file named by
+`CLASS_REG_SESSION_FILE`), which only your user account can read.
+
+### Upgrading from 0.1
+
+Version 0.1 databases open without any changes, but they have no admin yet. Run
+`class-reg admin add` once to create one. Note that `register` and `drop` now take the
+course code first: `class-reg register CS101 --student S1`.
 
 ## Library usage
 
@@ -117,15 +166,29 @@ registrar = load_registrar("school.db")
 If a rule is broken, `RegistrationError` is raised (for example, missing prerequisites,
 going over the credit limit, a schedule conflict, or a duplicate ID).
 
+The `Registrar` only enforces registration rules. Logins and permissions live in
+`class_registration.auth`, so an app built on the library decides who may call what:
+
+```python
+from class_registration import STUDENT, authenticate, role_of
+from class_registration.auth import can_view_roster
+
+user = authenticate(registrar, "alice", "pw")  # raises AuthenticationError if wrong
+assert role_of(user) == STUDENT
+assert not can_view_roster(user, registrar.courses["CS101"])
+```
+
 ## Design
 
 ```mermaid
 classDiagram
+    User <|-- Admin
     User <|-- Student
     User <|-- Instructor
     Registrar "1" o-- "*" Course
     Registrar "1" o-- "*" Student
     Registrar "1" o-- "*" Instructor
+    Registrar "1" o-- "*" Admin
     Course "*" --> "0..1" Instructor : taught by
     Course "*" --> "*" Student : enrolled / waitlist
     Course "1" *-- "*" MeetingTime
@@ -146,6 +209,9 @@ classDiagram
     class Instructor {
         employee_id
     }
+    class Admin {
+        admin_id
+    }
     class Course {
         course_code
         course_name
@@ -165,7 +231,9 @@ classDiagram
     }
     class Registrar {
         max_credits
+        find_user(username)
         create_course(...)
+        add_admin(admin)
         add_student(student)
         add_instructor(instructor)
         assign_instructor(course, instructor)
@@ -177,10 +245,11 @@ classDiagram
 
 ```
 src/class_registration/
-├── models.py       # User, Student, Instructor, Course, MeetingTime
+├── models.py       # User, Admin, Student, Instructor, Course, MeetingTime
 ├── registrar.py    # registration rules
-├── storage.py      # SQLite save/load
-├── exceptions.py   # RegistrationError
+├── auth.py         # login and role permissions
+├── storage.py      # SQLite save/load and login sessions
+├── exceptions.py   # RegistrationError, AuthenticationError, PermissionDenied
 └── cli.py          # class-reg command
 tests/              # unittest suite
 ```

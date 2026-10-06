@@ -1,13 +1,21 @@
 """Save and load a Registrar to and from a SQLite database file."""
 
+import hashlib
+import secrets
 import sqlite3
+import time as clock
 from contextlib import closing
 from datetime import time
 
-from .models import Course, Instructor, MeetingTime, Student
+from .models import Admin, Course, Instructor, MeetingTime, Student
 from .registrar import Registrar
 
-SCHEMA_VERSION = 1
+# Version 2 added the admins and sessions tables. Older files are upgraded in
+# place on open: every table is created only if it is missing.
+SCHEMA_VERSION = 2
+SUPPORTED_VERSIONS = (0, 1, 2)
+
+SESSION_LIFETIME = 8 * 60 * 60  # seconds
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -30,6 +38,15 @@ CREATE TABLE IF NOT EXISTS completed_courses (
 );
 CREATE TABLE IF NOT EXISTS instructors (
     employee_id   TEXT PRIMARY KEY,
+    username      TEXT NOT NULL,
+    first_name    TEXT NOT NULL,
+    last_name     TEXT NOT NULL,
+    salt          BLOB,
+    password_hash BLOB,
+    iterations    INTEGER
+);
+CREATE TABLE IF NOT EXISTS admins (
+    admin_id      TEXT PRIMARY KEY,
     username      TEXT NOT NULL,
     first_name    TEXT NOT NULL,
     last_name     TEXT NOT NULL,
@@ -67,6 +84,13 @@ CREATE TABLE IF NOT EXISTS waitlist (
     position    INTEGER NOT NULL,
     PRIMARY KEY (course_code, student_id)
 );
+-- Login sessions are not part of the Registrar's state, so save_registrar
+-- leaves this table alone. Only a hash of each token is stored.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    username   TEXT NOT NULL,
+    expires_at REAL NOT NULL
+);
 """
 
 # Children before parents, so deletes never violate a foreign key.
@@ -79,6 +103,7 @@ TABLES = (
     "completed_courses",
     "students",
     "instructors",
+    "admins",
     "settings",
 )
 
@@ -87,7 +112,7 @@ def _connect(path):
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA foreign_keys = ON")
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (0, SCHEMA_VERSION):
+    if version not in SUPPORTED_VERSIONS:
         conn.close()
         raise ValueError(
             f"{path} uses schema version {version}; this program supports {SCHEMA_VERSION}"
@@ -140,6 +165,11 @@ def save_registrar(registrar, path):
             conn.execute(
                 "INSERT INTO instructors VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (instructor.employee_id, *_user_row(instructor)),
+            )
+        for admin in registrar.admins.values():
+            conn.execute(
+                "INSERT INTO admins VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (admin.admin_id, *_user_row(admin)),
             )
         for course in registrar.courses.values():
             conn.execute(
@@ -198,6 +228,13 @@ def load_registrar(path):
             _restore_password(instructor, salt, pw_hash, iters)
             registrar.instructors[employee_id] = instructor
 
+        for admin_id, username, first, last, salt, pw_hash, iters in conn.execute(
+            "SELECT * FROM admins"
+        ):
+            admin = Admin(username, None, first, last, admin_id)
+            _restore_password(admin, salt, pw_hash, iters)
+            registrar.admins[admin_id] = admin
+
         prereqs = {}
         for code, prereq in conn.execute("SELECT * FROM prerequisites"):
             prereqs.setdefault(code, []).append(prereq)
@@ -232,3 +269,44 @@ def load_registrar(path):
             registrar.courses[code].waitlist.append(registrar.students[student_id])
 
     return registrar
+
+
+def _token_hash(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_session(path, username, lifetime=SESSION_LIFETIME, now=None):
+    """Start a login session for username and return its secret token."""
+    now = clock.time() if now is None else now
+    token = secrets.token_urlsafe(32)
+    with closing(_connect(path)) as conn, conn:
+        conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
+        conn.execute(
+            "INSERT INTO sessions VALUES (?, ?, ?)", (_token_hash(token), username, now + lifetime)
+        )
+    return token
+
+
+def session_username(path, token, now=None):
+    """Return the username a live session token belongs to, or None."""
+    now = clock.time() if now is None else now
+    with closing(_connect(path)) as conn:
+        row = conn.execute(
+            "SELECT username FROM sessions WHERE token_hash = ? AND expires_at > ?",
+            (_token_hash(token), now),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def end_session(path, token):
+    with closing(_connect(path)) as conn, conn:
+        conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_token_hash(token),))
+
+
+def end_user_sessions(path, username, keep_token=None):
+    """End all of a user's sessions, except keep_token's if given."""
+    keep = _token_hash(keep_token) if keep_token else ""
+    with closing(_connect(path)) as conn, conn:
+        conn.execute(
+            "DELETE FROM sessions WHERE username = ? AND token_hash != ?", (username, keep)
+        )
