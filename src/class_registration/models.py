@@ -119,3 +119,11 @@ class Student(User):
 
     def complete_course(self, course_code):
         self.completed_courses.add(course_code)
+
+
+class Admin(User):
+    """Registrar staff: can manage courses, people and registrations."""
+
+    def __init__(self, username, password, first_name, last_name, admin_id):
+        super().__init__(username, password, first_name, last_name)
+        self.admin_id = admin_id

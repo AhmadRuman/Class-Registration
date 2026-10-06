@@ -40,8 +40,16 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - name: CLI smoke test
         shell: bash
+        env:
+          CLASS_REG_DB: ci.db
+          CLASS_REG_SESSION_FILE: ci-session.json
         run: |
-          class-reg --db ci.db course add CS101 "Intro to Programming" --capacity 1
-          echo secret | class-reg --db ci.db student add S1 alice Alice Smith
-          class-reg --db ci.db register S1 CS101
-          class-reg --db ci.db course show CS101 | grep -q "S1  Alice Smith"
+          echo adminpw | class-reg admin add A1 root Ada Admin
+          echo adminpw | class-reg login root
+          class-reg course add CS101 "Intro to Programming" --capacity 1
+          echo secret | class-reg student add S1 alice Alice Smith
+          echo secret | class-reg login alice
+          class-reg register CS101
+          if class-reg course add CS102 "Not allowed"; then exit 1; fi
+          echo adminpw | class-reg login root
+          class-reg course show CS101 | grep -q "S1  Alice Smith"
