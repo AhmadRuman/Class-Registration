@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Try the Class Registration command-line tool in your browser: courses, waitlists, prerequisites, logins and roles.">
+<title>Class Registration Playground</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  /* Layout: registrar's console — terminal on the left, a "catalog card" rail on the right. */
+  :root {
+    --bg: #eef1f4;
+    --panel: #ffffff;
+    --ink: #17212b;
+    --muted: #5b6875;
+    --line: #d5dce3;
+    --accent: #0f6e63;        /* registrar green: links, prompt, focus */
+    --accent-soft: #dcefeb;
+    --term-bg: #13202b;
+    --term-fg: #dbe5ee;
+    --term-dim: #8ea0b0;
+    --ok: #7fd1b3;
+    --err: #ff9b8f;
+    --warn-bg: #fff4d6;
+    --warn-fg: #6b4e00;
+    --font-ui: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e151c; --panel: #16212b; --ink: #e3eaf1; --muted: #9aa9b7; --line: #263443;
+      --accent: #4cc3ad; --accent-soft: #173a36; --term-bg: #0a1117; --term-fg: #dbe5ee;
+      --term-dim: #7f91a2; --ok: #7fd1b3; --err: #ff9b8f; --warn-bg: #3a3011; --warn-fg: #f3d98b;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e151c; --panel: #16212b; --ink: #e3eaf1; --muted: #9aa9b7; --line: #263443;
+    --accent: #4cc3ad; --accent-soft: #173a36; --term-bg: #0a1117; --term-fg: #dbe5ee;
+    --term-dim: #7f91a2; --ok: #7fd1b3; --err: #ff9b8f; --warn-bg: #3a3011; --warn-fg: #f3d98b;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 15px;
+    line-height: 1.5; padding-inline: 16px; padding-block: 20px 32px;
+  }
+  .wrap { max-width: 1180px; margin-inline: auto; display: grid; gap: 18px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+  h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.01em; text-wrap: balance; }
+  h1 code { font-family: var(--font-mono); font-size: 0.85em; color: var(--accent); }
+  .sub { margin: 4px 0 0; color: var(--muted); max-width: 68ch; }
+  .status {
+    font-family: var(--font-mono); font-size: 12.5px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--muted); white-space: nowrap;
+  }
+  .status[data-state="ready"] { color: var(--accent); border-color: var(--accent); }
+  .status[data-state="error"] { color: var(--err); border-color: var(--err); }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+  /* Terminal */
+  .term {
+    background: var(--term-bg); color: var(--term-fg); border-radius: 10px; overflow: hidden;
+    display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: min(640px, 78vh); min-height: 380px;
+  }
+  .term-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--term-dim);
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+  .term-bar button {
+    font: inherit; color: var(--term-dim); background: transparent; border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; padding: 3px 8px; cursor: pointer;
+  }
+  .term-bar button:hover { color: var(--term-fg); border-color: var(--term-dim); }
+  #out {
+    margin: 0; padding: 14px; overflow: auto; font-family: var(--font-mono); font-size: 13px;
+    line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  #out .cmd { color: var(--term-fg); font-weight: 600; }
+  #out .cmd::before { content: "$ "; color: var(--ok); }
+  #out .stdout { color: var(--term-fg); }
+  #out .stderr { color: var(--err); }
+  #out .note { color: var(--term-dim); }
+  #out .gap { display: block; height: 8px; }
+
+  form.prompt { display: grid; gap: 8px; padding: 10px 12px; border-top: 1px solid rgba(255,255,255,0.08); }
+  .row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+  .row label { font-family: var(--font-mono); font-size: 13px; color: var(--ok); white-space: nowrap; }
+  .row input {
+    flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 14px; color: var(--term-fg);
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 8px 10px;
+  }
+  .row input:focus { outline: 2px solid var(--ok); outline-offset: 0; }
+  .row input:disabled { opacity: 0.5; }
+  .pw-label { color: var(--term-dim) !important; }
+  .run {
+    font-family: var(--font-ui); font-weight: 700; font-size: 14px; color: var(--term-bg); background: var(--ok);
+    border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer;
+  }
+  .run:disabled { opacity: 0.5; cursor: progress; }
+  .run:focus-visible, .chip:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Side rail */
+  aside { display: grid; gap: 14px; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 10px; }
+  .card h2 { margin: 0; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .btn {
+    font: inherit; font-weight: 700; cursor: pointer; border-radius: 8px; padding: 9px 12px;
+    border: 1px solid var(--accent); background: var(--accent); color: var(--panel);
+  }
+  .btn.quiet { background: transparent; color: var(--accent); }
+  .btn:disabled { opacity: 0.5; cursor: progress; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  .muted { color: var(--muted); font-size: 13.5px; margin: 0; }
+
+  table.accounts { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.accounts th { text-align: left; font-weight: 400; color: var(--muted); font-size: 12px; padding: 0 0 4px; }
+  table.accounts td { padding: 5px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  table.accounts code { font-family: var(--font-mono); font-size: 12.5px; }
+  .role { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+
+  .chips { display: grid; gap: 6px; }
+  .chip-group { display: grid; gap: 6px; }
+  .chip-group h3 { margin: 6px 0 0; font-size: 13px; }
+  .chip {
+    text-align: left; font-family: var(--font-mono); font-size: 12.5px; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .warn { background: var(--warn-bg); color: var(--warn-fg); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; }
+  footer { color: var(--muted); font-size: 12.5px; }
+  footer a { color: var(--accent); }
+  @media (prefers-reduced-motion: no-preference) { .chip, .btn, .run { transition: border-color .15s, color .15s; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Try <code>class-reg</code> in your browser</h1>
+      <p class="sub">This runs the real Class Registration program, compiled to WebAssembly with Pyodide. Type commands as you would in a terminal. Your data stays in this browser tab and survives a reload.</p>
+    </div>
+    <span class="status" id="status" data-state="loading">Loading Python…</span>
+  </header>
+
+  <div class="grid">
+    <section class="term" aria-label="Terminal">
+      <div class="term-bar">
+        <span id="whoami">not logged in</span>
+        <span class="btns"><button type="button" id="retry" hidden>Retry</button><button type="button" id="clear">Clear screen</button></span>
+      </div>
+      <pre id="out" aria-live="polite"><span class="note">Welcome. Python is starting up (about 15 MB the first time, cached after that).
+
+Quick start: press “Load sample school”, then try the commands on the right.
+Or start from scratch with:  admin add A1 root Ada Admin
+
+The "class-reg" prefix is optional. Commands that need a password ask for it
+below the command line. You can also pipe it:  echo pw | class-reg login alice
+</span></pre>
+      <form class="prompt" id="prompt" autocomplete="off">
+        <div class="row">
+          <label for="cmd">class-reg</label>
+          <input id="cmd" name="cmd" spellcheck="false" autocapitalize="off" placeholder="course list" disabled>
+          <button class="run" id="run" type="submit" disabled>Run</button>
+        </div>
+        <div class="row" id="pw1-row" hidden>
+          <label class="pw-label" for="pw1" id="pw1-label">Password</label>
+          <input id="pw1" type="password" autocomplete="off">
+        </div>
+        <div class="row" id="pw2-row" hidden>
+          <label class="pw-label" for="pw2" id="pw2-label">New password</label>
+          <input id="pw2" type="password" autocomplete="off">
+        </div>
+      </form>
+    </section>
+
+    <aside>
+      <div class="card">
+        <h2>Sample data</h2>
+        <p class="muted">Creates an admin, an instructor, three students and four courses, then logs you in as the admin.</p>
+        <div class="btns">
+          <button class="btn" type="button" id="seed" disabled>Load sample school</button>
+          <button class="btn quiet" type="button" id="reset" disabled>Start over</button>
+        </div>
+        <div class="warn" id="reset-confirm" hidden>
+          Delete all data in this tab?
+          <div class="btns" style="margin-top:8px">
+            <button class="btn" type="button" id="reset-yes">Delete everything</button>
+            <button class="btn quiet" type="button" id="reset-no">Keep it</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Sample accounts</h2>
+        <table class="accounts">
+          <thead><tr><th>Username</th><th>Password</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td><code>root</code></td><td><code>adminpw</code></td><td><span class="role">admin</span></td></tr>
+            <tr><td><code>jdoe</code></td><td><code>teachpw</code></td><td><span class="role">instructor</span></td></tr>
+            <tr><td><code>alice</code></td><td><code>alicepw</code></td><td><span class="role">student</span></td></tr>
+            <tr><td><code>bob</code></td><td><code>bobpw</code></td><td><span class="role">student</span></td></tr>
+            <tr><td><code>cara</code></td><td><code>carapw</code></td><td><span class="role">student</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Try these</h2>
+        <div class="chips" id="chips"></div>
+      </div>
+    </aside>
+  </div>
+
+  <footer id="footer">Runs <code>class_registration</code> from <a href="https://github.com/AhmadRuman/Class-Registration">AhmadRuman/Class-Registration</a> with <a href="https://pyodide.org">Pyodide</a>. Password hashing uses a lighter setting here so commands respond quickly. Nothing you type leaves your browser.</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/pyodide@0.27.7/full/pyodide.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const out = $("out"), cmd = $("cmd"), run = $("run"), statusEl = $("status");
+  const DATA = "/data", DB = "/data/registration.db", SESSION = "/data/session.json";
+  const STORE_KEY = "class-reg-playground-v1";
+  let py = null, runner = null, busy = false, history = [], histPos = -1;
+
+  const CHIPS = [
+    ["As the admin (root)", [
+      "course list",
+      "course show CS101",
+      "student show S2",
+      "register CS201 --student S3",
+      "course add MATH201 \"Linear Algebra\" --credits 4 --capacity 25 --prereq MATH101 --meets \"Fri 10:00-12:00\"",
+      "init --max-credits 9",
+    ]],
+    ["As a student (alice)", [
+      "login alice",
+      "whoami",
+      "register CS101",
+      "register CS201",
+      "register MATH101",
+      "student show",
+      "course show CS101",
+      "drop CS101",
+      "course add HACK1 Nope",
+    ]],
+    ["As the instructor (jdoe)", [
+      "login jdoe",
+      "course show CS101",
+      "student complete S1 CS101",
+      "student complete S1 MATH101",
+    ]],
+    ["Anyone", ["logout", "passwd", "--help", "register --help"]],
+  ];
+
+  const SEED = [
+    ["admin add A1 root Ada Admin", ["adminpw"]],
+    ["login root", ["adminpw"]],
+    ["course add CS101 \"Intro to Programming\" --credits 4 --capacity 2 --meets \"Mon 09:00-10:30\" --meets \"Wed 09:00-10:30\"", []],
+    ["course add CS201 Algorithms --prereq CS101 --meets \"Tue 13:00-14:30\"", []],
+    ["course add MATH101 \"Calculus I\" --credits 4 --meets \"Mon 10:00-11:30\"", []],
+    ["course add HIST110 \"World History\" --meets \"Thu 15:00-16:30\"", []],
+    ["instructor add E1 jdoe Jane Doe", ["teachpw"]],
+    ["instructor assign E1 CS101", []],
+    ["student add S1 alice Alice Smith", ["alicepw"]],
+    ["student add S2 bob Bob Lee", ["bobpw"]],
+    ["student add S3 cara Cara Diaz", ["carapw"]],
+    ["register CS101 --student S2", []],
+    ["register CS101 --student S3", []],
+    ["student complete S3 CS101", []],
+  ];
+
+  function print(text, cls) {
+    if (!text) return;
+    const span = document.createElement("span");
+    span.className = cls;
+    span.textContent = text.endsWith("\n") ? text : text + "\n";
+    out.appendChild(span);
+    out.scrollTop = out.scrollHeight;
+  }
+  function gap() { const s = document.createElement("span"); s.className = "gap"; out.appendChild(s); }
+  function setStatus(text, state) { statusEl.textContent = text; statusEl.dataset.state = state; }
+  function setBusy(b) {
+    busy = b;
+    for (const el of [cmd, run, $("seed"), $("reset")]) el.disabled = b || !runner;
+  }
+
+  // ---- Which commands need passwords, and how many ----
+  function tokenize(line) {
+    return (line.match(/"[^"]*"|'[^']*'|\S+/g) || []).map((t) => t.replace(/^["']|["']$/g, ""));
+  }
+  function passwordPrompts(line) {
+    if (/^\s*echo\s/.test(line)) return [];
+    let t = tokenize(line);
+    if (t[0] === "class-reg") t = t.slice(1);
+    t = t.filter((x, i) => !(x.startsWith("--db") || t[i - 1] === "--db"));
+    if (t.includes("-h") || t.includes("--help")) return [];
+    const [a, b] = t;
+    if (a === "login") return ["Password"];
+    if (a === "passwd") return ["Current password", "New password"];
+    if (["admin", "instructor", "student"].includes(a) && b === "add") return ["Password for the new account"];
+    return [];
+  }
+  function updatePasswordRows() {
+    const prompts = passwordPrompts(cmd.value);
+    [["pw1-row", "pw1-label"], ["pw2-row", "pw2-label"]].forEach(([row, label], i) => {
+      $(row).hidden = !prompts[i];
+      if (prompts[i]) $(label).textContent = prompts[i];
+    });
+  }
+
+  // ---- Persistence (per-browser convenience only) ----
+  function toB64(bytes) { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); }
+  function fromB64(b64) { const s = atob(b64); const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+  function persist() {
+    try {
+      const saved = {};
+      for (const f of [DB, SESSION]) {
+        if (py.FS.analyzePath(f).exists) saved[f] = toB64(py.FS.readFile(f));
+      }
+      localStorage.setItem(STORE_KEY, JSON.stringify(saved));
+    } catch (e) { /* storage unavailable: data lasts for this visit only */ }
+  }
+  function restore() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+      for (const [f, b64] of Object.entries(saved)) py.FS.writeFile(f, fromB64(b64));
+      return Object.keys(saved).length > 0;
+    } catch (e) { return false; }
+  }
+  function wipe() {
+    for (const f of [DB, SESSION]) { try { py.FS.unlink(f); } catch (e) {} }
+    try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+  }
+
+  // ---- Running commands ----
+  async function exec(line, passwords, echo = true) {
+    let stdin = passwords.map((p) => p + "\n").join("");
+    let shown = line;
+    const pipe = line.match(/^\s*echo\s+("[^"]*"|'[^']*'|\S+)\s*\|\s*(.*)$/);
+    if (pipe) { stdin = pipe[1].replace(/^["']|["']$/g, "") + "\n"; line = pipe[2]; }
+    if (echo) print(shown, "cmd");
+    const res = runner(line, stdin).toJs();
+    const [code, stdout, stderr] = res;
+    print(stdout, "stdout");
+    print(stderr, "stderr");
+    persist();
+    await refreshWhoami();
+    return code;
+  }
+  async function refreshWhoami() {
+    try {
+      const [code, stdout] = runner("whoami", "").toJs();
+      $("whoami").textContent = code === 0 ? "logged in: " + stdout.trim() : "not logged in";
+    } catch (e) { $("whoami").textContent = "not logged in"; }
+  }
+
+  $("prompt").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (busy || !runner) return;
+    const line = cmd.value.trim();
+    if (!line) return;
+    const prompts = passwordPrompts(line);
+    const pws = [$("pw1").value, $("pw2").value].slice(0, prompts.length);
+    const missing = prompts.findIndex((_, i) => !pws[i]);
+    if (missing >= 0) { (missing === 0 ? $("pw1") : $("pw2")).focus(); return; }
+    setBusy(true);
+    history.push(line); histPos = history.length;
+    // Let the UI update before the (synchronous) Python call.
+    await new Promise((r) => setTimeout(r, 0));
+    try {
+      if (line === "clear") out.textContent = "";
+      else await exec(line, pws);
+    } catch (err) { print(String(err), "stderr"); }
+    gap();
+    cmd.value = ""; $("pw1").value = ""; $("pw2").value = "";
+    updatePasswordRows();
+    setBusy(false);
+    cmd.focus();
+  });
+  cmd.addEventListener("input", updatePasswordRows);
+  cmd.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp" && history.length) { histPos = Math.max(0, histPos - 1); cmd.value = history[histPos]; e.preventDefault(); updatePasswordRows(); }
+    if (e.key === "ArrowDown" && history.length) { histPos = Math.min(history.length, histPos + 1); cmd.value = history[histPos] || ""; e.preventDefault(); updatePasswordRows(); }
+  });
+  for (const id of ["pw1", "pw2"]) {
+    $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("prompt").requestSubmit(); } });
+  }
+  $("clear").addEventListener("click", () => { out.textContent = ""; cmd.focus(); });
+
+  // Chips fill the command line; password fields appear when needed.
+  const chips = $("chips");
+  for (const [title, items] of CHIPS) {
+    const group = document.createElement("div");
+    group.className = "chip-group";
+    const h = document.createElement("h3");
+    h.textContent = title;
+    group.appendChild(h);
+    for (const c of items) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "chip"; b.textContent = c;
+      b.addEventListener("click", () => {
+        cmd.value = c; updatePasswordRows();
+        const prompts = passwordPrompts(c);
+        (prompts.length ? $("pw1") : cmd).focus();
+      });
+      group.appendChild(b);
+    }
+    chips.appendChild(group);
+  }
+
+  $("seed").addEventListener("click", async () => {
+    if (busy) return;
+    setBusy(true);
+    await new Promise((r) => setTimeout(r, 0));
+    wipe();
+    print("Loading sample school…", "note");
+    let failed = false;
+    for (const [line, pws] of SEED) {
+      if ((await exec(line, pws)) !== 0) { failed = true; break; }
+    }
+    print(failed ? "Sample data stopped at the error above." : "Sample school ready. You are logged in as root (admin).", failed ? "stderr" : "note");
+    gap();
+    setBusy(false);
+    cmd.focus();
+  });
+  $("reset").addEventListener("click", () => { $("reset-confirm").hidden = false; });
+  $("reset-no").addEventListener("click", () => { $("reset-confirm").hidden = true; });
+  $("reset-yes").addEventListener("click", async () => {
+    $("reset-confirm").hidden = true;
+    wipe();
+    out.textContent = "";
+    print("All data deleted. Start with “Load sample school” or:  admin add A1 root Ada Admin", "note");
+    gap();
+    await refreshWhoami();
+    cmd.focus();
+  });
+
+  // ---- Boot ----
+  const BOOT = `
+import contextlib, io, os, shlex, sys
+sys.path.insert(0, "/app")
+os.environ["CLASS_REG_DB"] = "${DB}"
+os.environ["CLASS_REG_SESSION_FILE"] = "${SESSION}"
+from class_registration import User
+User.hash_iterations = 20_000
+from class_registration.cli import main
+
+def run(line, stdin):
+    try:
+        argv = shlex.split(line)
+    except ValueError as e:
+        return [2, "", f"error: {e}\\n"]
+    if argv[:1] == ["class-reg"]:
+        argv = argv[1:]
+    out, err = io.StringIO(), io.StringIO()
+    old_stdin, sys.stdin = sys.stdin, io.StringIO(stdin)
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                code = main(argv)
+            except SystemExit as e:
+                code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+    finally:
+        sys.stdin = old_stdin
+    return [code, out.getvalue(), err.getvalue()]
+run
+`;
+
+  // Resolve the page's own files against document.baseURI: inside the viewer,
+  // location.href can be about:srcdoc, which is not a usable base.
+  const here = (path) => new URL(path, document.baseURI).href;
+  async function getJSON(path) {
+    const res = await fetch(here(path));
+    if (!res.ok) throw new Error(`${path} returned HTTP ${res.status}`);
+    return res.json();
+  }
+
+  const PYODIDE_URL = "https://cdn.jsdelivr.net/npm/pyodide@0.27.7/full/";
+
+  async function boot() {
+    let step = "checking WebAssembly support";
+    try {
+      setStatus("Loading Python…", "loading");
+      if (typeof WebAssembly !== "object") throw new Error("this browser has no WebAssembly support");
+      // The smallest valid module: fails fast if WebAssembly is blocked.
+      await WebAssembly.instantiate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+
+      step = "loading the Python runtime script";
+      if (typeof loadPyodide !== "function") throw new Error("pyodide.js did not load from cdn.jsdelivr.net");
+
+      step = "starting Python";
+      py = await loadPyodide({ indexURL: PYODIDE_URL });
+
+      step = "loading the sqlite3 and hashlib modules";
+      setStatus("Loading packages…", "loading");
+      await py.loadPackage(["sqlite3", "hashlib"]);
+
+      step = "loading the class_registration program";
+      const src = await getJSON("app-source.json");
+      py.FS.mkdirTree("/app/class_registration");
+      py.FS.mkdirTree(DATA);
+      for (const [name, text] of Object.entries(src.files)) py.FS.writeFile("/app/class_registration/" + name, text);
+      runner = py.runPython(BOOT);
+
+      const restored = restore();
+      setStatus("Python ready · main@" + src.commit, "ready");
+      $("retry").hidden = true;
+      print(restored ? "Restored your data from the last visit." : "Python is ready.", "note");
+      gap();
+      await refreshWhoami();
+      setBusy(false);
+      cmd.focus();
+    } catch (err) {
+      setStatus("Could not start Python", "error");
+      const detail = err && (err.name || err.message) ? `${err.name || "Error"}: ${err.message}` : String(err);
+      print(`Python could not start while ${step}.\n${detail}`, "stderr");
+      if (/WebAssembly|wasm|unsafe-eval|Content Security Policy/i.test(detail)) {
+        print("This browser appears to block WebAssembly, which Python in the browser needs.", "note");
+      } else {
+        print("Check your connection, or try a recent Chrome, Edge, Firefox or Safari.", "note");
+      }
+      $("retry").hidden = false;
+    }
+  }
+  $("retry").addEventListener("click", () => {
+    $("retry").hidden = true;
+    print("Retrying…", "note");
+    boot();
+  });
+  boot();
+})();
+</script>
+</body>
+</html>

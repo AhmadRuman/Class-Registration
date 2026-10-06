@@ -7,6 +7,10 @@
 A class registration system written in plain Python with no third-party dependencies.
 It ships as a library and a `class-reg` command-line tool, and stores its data in SQLite.
 
+**[Try it in your browser →](https://ahmadruman.github.io/Class-Registration/)** No install
+needed: the playground runs the real `class-reg` program with
+[Pyodide](https://pyodide.org) and comes with sample accounts for every role.
+
 ## Features
 
 - **Courses** with credits, seat limits, prerequisites and weekly meeting times
@@ -252,6 +256,19 @@ src/class_registration/
 ├── exceptions.py   # RegistrationError, AuthenticationError, PermissionDenied
 └── cli.py          # class-reg command
 tests/              # unittest suite
+```
+
+## Online playground
+
+The `site/` folder is a single-page playground that runs this package in the browser
+with Pyodide (Python compiled to WebAssembly). On every push to `main`, the
+`Deploy playground` workflow bundles `src/class_registration` into
+`site/app-source.json` and publishes the folder to GitHub Pages, so the playground
+always runs the current code. To try it locally:
+
+```bash
+python site/build.py
+python -m http.server --directory site 8000   # then open http://localhost:8000
 ```
 
 ## Development
