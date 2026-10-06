@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "class-registration"
+dynamic = ["version"]
+description = "A class registration system with waitlists, prerequisites, credit limits and schedule conflict checks"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "AhmadRuman" }]
+requires-python = ">=3.9"
+dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+]
+
+[project.urls]
+Homepage = "https://github.com/AhmadRuman/Class-Registration"
+
+[project.scripts]
+class-reg = "class_registration.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "class_registration.__version__" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
